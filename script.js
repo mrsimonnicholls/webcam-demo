@@ -1,11 +1,43 @@
 const video = document.querySelector('#video');
 const nav = document.querySelector('#camera-options');
-let currentStream;
+let currentStream = null;
 
-// Get list of video input devices
+// Helper to stop any running stream
+function stopStream() {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+    }
+}
+
+// Main stream starter — supports facingMode and deviceId
+function startStream({ deviceId = null, facingMode = null }) {
+    stopStream();
+
+    const constraints = {
+        video: {}
+    };
+
+    if (deviceId) {
+        constraints.video.deviceId = { exact: deviceId };
+    } else if (facingMode) {
+        constraints.video.facingMode = { exact: facingMode };
+    }
+
+    navigator.mediaDevices.getUserMedia(constraints)
+        .then(stream => {
+            currentStream = stream;
+            video.srcObject = stream;
+        })
+        .catch(err => {
+            console.error('Error starting stream:', err);
+        });
+}
+
+// Build camera switcher UI
 navigator.mediaDevices.enumerateDevices()
     .then(devices => {
         const cameras = devices.filter(d => d.kind === 'videoinput');
+
         cameras.forEach((camera, index) => {
             const id = `cam${index}`;
             const radio = document.createElement('input');
@@ -24,52 +56,17 @@ navigator.mediaDevices.enumerateDevices()
 
             radio.addEventListener('change', () => {
                 if (radio.checked) {
-                    const isRear = /back|rear/i.test(camera.label);
-                    startStream(camera.deviceId, isRear ? 'environment' : null);
+                    const isRear = /back|rear|environment/i.test(camera.label);
+                    startStream({ deviceId: camera.deviceId, facingMode: isRear ? 'environment' : 'user' });
                 }
             });
         });
 
-        if (cameras.length > 0) {
-            if (cameras.length > 0) {
-                const isRear = /back|rear/i.test(cameras[0].label);
-                startStream(cameras[0].deviceId, isRear ? 'environment' : null);
-            }
+        // Default to front camera on mobile, or first cam on desktop
+        const defaultFacing = /iPhone|iPad|Android/i.test(navigator.userAgent) ? 'user' : null;
+        if (defaultFacing) {
+            startStream({ facingMode: defaultFacing });
+        } else if (cameras.length > 0) {
+            startStream({ deviceId: cameras[0].deviceId });
         }
     });
-
-function startStream(deviceId, facingModeHint = null) {
-    if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-    }
-
-    const constraints = {
-        video: deviceId ? { deviceId: { exact: deviceId } } : {}
-    };
-
-    // Add facingMode fallback for iOS
-    if (facingModeHint) {
-        constraints.video.facingMode = { exact: facingModeHint };
-    }
-
-    navigator.mediaDevices.getUserMedia(constraints)
-        .then(stream => {
-            currentStream = stream;
-            video.srcObject = stream;
-        })
-        .catch(err => {
-            console.warn('Primary constraints failed, trying facingMode only…', err);
-
-            // fallback if deviceId failed
-            if (facingModeHint) {
-                navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: facingModeHint } }
-                }).then(stream => {
-                    currentStream = stream;
-                    video.srcObject = stream;
-                }).catch(err => {
-                    console.error('Failed to access camera:', err);
-                });
-            }
-        });
-}
