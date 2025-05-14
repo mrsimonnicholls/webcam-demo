@@ -24,29 +24,52 @@ navigator.mediaDevices.enumerateDevices()
 
             radio.addEventListener('change', () => {
                 if (radio.checked) {
-                    startStream(camera.deviceId);
+                    const isRear = /back|rear/i.test(camera.label);
+                    startStream(camera.deviceId, isRear ? 'environment' : null);
                 }
             });
         });
 
         if (cameras.length > 0) {
-            startStream(cameras[0].deviceId);
+            if (cameras.length > 0) {
+                const isRear = /back|rear/i.test(cameras[0].label);
+                startStream(cameras[0].deviceId, isRear ? 'environment' : null);
+            }
         }
     });
 
-function startStream(deviceId) {
+function startStream(deviceId, facingModeHint = null) {
     if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
     }
 
-    navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId } }
-    })
+    const constraints = {
+        video: deviceId ? { deviceId: { exact: deviceId } } : {}
+    };
+
+    // Add facingMode fallback for iOS
+    if (facingModeHint) {
+        constraints.video.facingMode = { exact: facingModeHint };
+    }
+
+    navigator.mediaDevices.getUserMedia(constraints)
         .then(stream => {
             currentStream = stream;
             video.srcObject = stream;
         })
         .catch(err => {
-            console.error('Error starting camera:', err);
+            console.warn('Primary constraints failed, trying facingMode only…', err);
+
+            // fallback if deviceId failed
+            if (facingModeHint) {
+                navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: facingModeHint } }
+                }).then(stream => {
+                    currentStream = stream;
+                    video.srcObject = stream;
+                }).catch(err => {
+                    console.error('Failed to access camera:', err);
+                });
+            }
         });
 }
